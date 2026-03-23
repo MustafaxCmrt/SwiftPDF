@@ -3,8 +3,11 @@
 
 from __future__ import annotations
 
+import atexit
 import os
+import shutil
 import subprocess
+import tempfile
 import threading
 from pathlib import Path
 from typing import Callable
@@ -12,8 +15,30 @@ from typing import Callable
 from utils import find_libreoffice_executable, is_supported_file
 
 
-# Varsayılan dönüşüm zaman aşımı (saniye) — büyük sunumlar için yeterli süre
-DEFAULT_TIMEOUT_SEC = 600
+# Varsayılan dönüşüm zaman aşımı (saniye)
+DEFAULT_TIMEOUT_SEC = 300
+
+# LibreOffice için izole geçici kullanıcı profili — profil kilidi sorununu önler
+_lo_profile_dir: str | None = None
+
+
+def _get_lo_profile_dir() -> str:
+    """LibreOffice için tek seferlik geçici profil dizini oluşturur."""
+    global _lo_profile_dir
+    if _lo_profile_dir is None:
+        _lo_profile_dir = tempfile.mkdtemp(prefix="swiftpdf_lo_")
+        atexit.register(_cleanup_lo_profile)
+    return _lo_profile_dir
+
+
+def _cleanup_lo_profile() -> None:
+    global _lo_profile_dir
+    if _lo_profile_dir and os.path.isdir(_lo_profile_dir):
+        try:
+            shutil.rmtree(_lo_profile_dir, ignore_errors=True)
+        except Exception:
+            pass
+        _lo_profile_dir = None
 
 
 class ConversionResult:
@@ -57,11 +82,16 @@ def convert_file_to_pdf(
     if not out.is_dir():
         return ConversionResult(str(inp), False, "Çıktı klasörü geçersiz veya yok.")
 
+    # İzole profil dizini — açık LibreOffice oturumuyla çakışmayı önler
+    profile_uri = Path(_get_lo_profile_dir()).as_uri()
+
     cmd = [
         soffice_path,
+        f"-env:UserInstallation={profile_uri}",
         "--headless",
         "--norestore",
         "--nolockcheck",
+        "--nologo",
         "--nodefault",
         "--convert-to",
         "pdf",

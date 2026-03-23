@@ -1,0 +1,106 @@
+name: Build & Release
+
+# Versiyon tag'i push edildiğinde tetiklenir: git tag v1.0.1 && git push --tags
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Bağımlılıkları yükle
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Windows EXE derle
+        run: |
+          pyinstaller --onedir --windowed --name "SwiftPDF" --icon assets\icon2.ico --add-data "assets;assets" main.py
+
+      - name: ZIP oluştur
+        run: |
+          Compress-Archive -Path dist\SwiftPDF\* -DestinationPath SwiftPDF-Windows.zip
+
+      - name: Artifact yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: SwiftPDF-Windows
+          path: SwiftPDF-Windows.zip
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Bağımlılıkları yükle
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: macOS uygulama derle
+        run: |
+          pyinstaller --onefile --windowed --name "SwiftPDF" --icon assets/icon1.icns --add-data "assets:assets" main.py
+
+      - name: ZIP oluştur
+        run: |
+          cd dist && zip -r ../SwiftPDF-macOS.zip SwiftPDF
+
+      - name: Artifact yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: SwiftPDF-macOS
+          path: SwiftPDF-macOS.zip
+
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Artifact'ları indir
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Versiyon notu oluştur
+        id: tag
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: GitHub Release oluştur
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "SwiftPDF ${{ steps.tag.outputs.version }}"
+          body: |
+            ## SwiftPDF ${{ steps.tag.outputs.version }}
+
+            ### İndirme
+            - **Windows:** `SwiftPDF-Windows.zip` — Çıkart ve `SwiftPDF.exe` çalıştır
+            - **macOS:** `SwiftPDF-macOS.zip` — Çıkart ve `SwiftPDF` çalıştır
+
+            ### Gereksinimler
+            - [LibreOffice](https://www.libreoffice.org/download) kurulu olmalı
+          files: |
+            artifacts/SwiftPDF-Windows/SwiftPDF-Windows.zip
+            artifacts/SwiftPDF-macOS/SwiftPDF-macOS.zip
+          draft: false
+          prerelease: false

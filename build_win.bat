@@ -1,10 +1,10 @@
 @echo off
-REM
+REM SwiftPDF Windows build — onedir modu (_MEI temp hatasini onler)
 cd /d "%~dp0"
 call .venv\Scripts\activate
 
 pyinstaller ^
-  --onefile ^
+  --onedir ^
   --windowed ^
   --name "SwiftPDF" ^
   --icon assets\icon2.ico ^
@@ -12,4 +12,4 @@ pyinstaller ^
   main.py
 
 echo.
-echo Cikti: dist\SwiftPDF.exe
+echo Cikti: dist\SwiftPDF\ klasoru

@@ -6,6 +6,9 @@ from __future__ import annotations
 import datetime
 import os
 import platform
+import signal
+import subprocess
+import sys
 import webbrowser
 from pathlib import Path
 
@@ -220,7 +223,12 @@ class SwiftPDFUIMixin:
         ctk.CTkButton(row, text="Seç…", width=80, height=34, corner_radius=8,
                        fg_color=("gray82", "#2a2a2a"), hover_color=("gray72", "#333333"),
                        font=ctk.CTkFont(size=12, weight="bold"), command=self._browse_out
-                       ).grid(row=0, column=2, padx=(8, 12), pady=8)
+                       ).grid(row=0, column=2, padx=(8, 4), pady=8)
+
+        ctk.CTkButton(row, text="Göster", width=80, height=34, corner_radius=8,
+                       fg_color=("gray82", "#2a2a2a"), hover_color=("gray72", "#333333"),
+                       font=ctk.CTkFont(size=12, weight="bold"), command=self._show_output_dir
+                       ).grid(row=0, column=3, padx=(0, 12), pady=8)
 
     def _build_progress(self) -> None:
         row = ctk.CTkFrame(self, fg_color="transparent", height=36)
@@ -252,6 +260,18 @@ class SwiftPDFUIMixin:
             font=ctk.CTkFont(size=15, weight="bold"), command=self._start_convert,
         )
         self._convert_btn.grid(row=6, column=0, sticky="ew", padx=20, pady=(0, 16))
+
+    # ── Kapanış ─────────────────────────────────────────────────────────────
+
+    def _on_close(self) -> None:
+        """Pencere kapatılırken tüm kaynakları temizle ve işlemi sonlandır."""
+        try:
+            self.destroy()
+        except Exception:
+            pass
+        # Arka plan thread'leri (daemon) ve olası LibreOffice süreçleri
+        # tam kapanmayabilir — işlemi kesin sonlandır.
+        os._exit(0)
 
     # ── Sürükle-bırak ───────────────────────────────────────────────────────
 
@@ -294,6 +314,31 @@ class SwiftPDFUIMixin:
         d = filedialog.askdirectory(title="Çıktı klasörü")
         if d:
             self._out_var.set(d)
+
+    def _show_output_dir(self) -> None:
+        d = self._out_var.get().strip()
+        if not d or not Path(d).is_dir():
+            self._log_line("Klasör bulunamadı.")
+            return
+        if platform.system() == "Windows":
+            os.startfile(d)
+        elif platform.system() == "Darwin":
+            subprocess.Popen(["open", d])
+        else:
+            subprocess.Popen(["xdg-open", d])
+
+    def _show_file(self, filepath: str) -> None:
+        """Dosya yöneticisinde dosyayı seçili olarak gösterir."""
+        p = Path(filepath)
+        if not p.is_file():
+            self._log_line(f"Dosya bulunamadı: {p.name}")
+            return
+        if platform.system() == "Windows":
+            subprocess.Popen(["explorer", "/select,", str(p)])
+        elif platform.system() == "Darwin":
+            subprocess.Popen(["open", "-R", str(p)])
+        else:
+            subprocess.Popen(["xdg-open", str(p.parent)])
 
     def _add_paths(self, paths: list[str]) -> None:
         for p in paths:
@@ -349,6 +394,13 @@ class SwiftPDFUIMixin:
                                text_color=_TEXT2)
         status.grid(row=1, column=2, padx=(4, 4), pady=(0, 8), sticky="se")
 
+        # Göster düğmesi (başlangıçta gizli, dönüşüm başarılı olursa görünür)
+        show = ctk.CTkButton(card, text="Göster", width=60, height=28, corner_radius=8,
+                              fg_color=_GREEN, hover_color="#16a34a",
+                              font=ctk.CTkFont(size=11, weight="bold"), text_color="white",
+                              command=lambda: None)
+        # Henüz grid'e eklenmez — başarılı dönüşümde gösterilecek
+
         # Kaldır düğmesi
         rm = ctk.CTkButton(card, text="✕", width=32, height=32, corner_radius=8,
                             fg_color="transparent", hover_color=("gray78", "#333333"),
@@ -356,7 +408,7 @@ class SwiftPDFUIMixin:
                             command=lambda fp=p: self._remove_one(fp))
         rm.grid(row=0, column=3, rowspan=2, padx=(0, 8), pady=8)
 
-        self._file_rows[p] = {"card": card, "frame": card, "status": status, "badge": badge, "rm": rm}
+        self._file_rows[p] = {"card": card, "frame": card, "status": status, "badge": badge, "show": show, "rm": rm}
 
     @staticmethod
     def _badge_info(ext: str) -> tuple[str, str]:
@@ -462,6 +514,12 @@ class SwiftPDFUIMixin:
                     if res.ok:
                         fi["card"].configure(border_color=_GREEN, border_width=2)
                         fi["status"].configure(text="PDF hazır ✓", text_color=_GREEN)
+                        # "Göster" butonunu görünür yap
+                        if res.output_pdf:
+                            pdf_path = res.output_pdf
+                            fi["show"].configure(command=lambda p=pdf_path: self._show_file(p))
+                            fi["show"].grid(row=1, column=3, padx=(0, 8), pady=(0, 8), sticky="se")
+                            fi["rm"].grid(row=0, column=3, padx=(0, 8), pady=(8, 0))
                     else:
                         fi["card"].configure(border_color=_RED, border_width=2)
                         fi["status"].configure(text="Hata ✗", text_color=_RED)
@@ -511,6 +569,7 @@ if _TKDND:
             self._converting = False
             self._build_ui()
             self._setup_dnd()
+            self.protocol("WM_DELETE_WINDOW", self._on_close)
 else:
     class SwiftPDFApp(ctk.CTk, SwiftPDFUIMixin):
         def __init__(self, soffice_path: str) -> None:
@@ -520,6 +579,7 @@ else:
             self._file_rows = {}
             self._converting = False
             self._build_ui()
+            self.protocol("WM_DELETE_WINDOW", self._on_close)
 
 
 def run_app(soffice_path: str) -> None:

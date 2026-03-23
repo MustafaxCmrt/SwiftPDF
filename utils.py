@@ -14,7 +14,7 @@ SUPPORTED_EXTENSIONS = frozenset(
     {".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt"}
 )
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.1"
 
 LIBREOFFICE_DOWNLOAD_URL = "https://www.libreoffice.org/download"
 
